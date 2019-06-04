@@ -5285,6 +5285,17 @@ func (v *MenuItem) GetLabel() string {
 	return goString(l)
 }
 
+// SetUseUnderline() is a wrapper around gtk_menu_item_set_use_underline()
+func (v *MenuItem) SetUseUnderline(settings bool) {
+	C.gtk_menu_item_set_use_underline(v.native(), gbool(settings))
+}
+
+// GetUseUnderline() is a wrapper around gtk_menu_item_get_use_underline()
+func (v *MenuItem) GetUseUnderline() bool {
+	c := C.gtk_menu_item_get_use_underline(v.native())
+	return gobool(c)
+}
+
 /*
  * GtkMessageDialog
  */
@@ -7285,6 +7296,11 @@ func (v *Statusbar) GetMessageArea() (*Box, error) {
 	return &Box{Container{Widget{glib.InitiallyUnowned{obj}}}}, nil
 }
 
+// RemoveAll() is a wrapper around gtk_statusbar_remove_all()
+func (v *Statusbar) RemoveAll(contextID uint) {
+	C.gtk_statusbar_remove_all(v.native(), C.guint(contextID))
+}
+
 /*
  * GtkSwitch
  */
@@ -7569,6 +7585,13 @@ func (v *TextBuffer) GetIterAtOffset(charOffset int) *TextIter {
 	return (*TextIter)(&iter)
 }
 
+// GetIterAtLine() is a wrapper around gtk_text_buffer_get_iter_at_line().
+func (v *TextBuffer) GetIterAtLine(line int) *TextIter {
+	var iter C.GtkTextIter
+	C.gtk_text_buffer_get_iter_at_line(v.native(), &iter, C.gint(line))
+	return (*TextIter)(&iter)
+}
+
 // GetStartIter() is a wrapper around gtk_text_buffer_get_start_iter().
 func (v *TextBuffer) GetStartIter() *TextIter {
 	var iter C.GtkTextIter
@@ -7633,6 +7656,24 @@ func (v *TextBuffer) InsertAtCursor(text string) {
 	cstr := C.CString(text)
 	defer C.free(unsafe.Pointer(cstr))
 	C.gtk_text_buffer_insert_at_cursor(v.native(), (*C.gchar)(cstr), C.gint(len(text)))
+}
+
+// InsertWithTag() is a wrapper around gtk_text_buffer_insert_with_tags() that supports only one tag
+// as cgo does not support functions with variable-argument lists (see https://github.com/golang/go/issues/975)
+func (v *TextBuffer) InsertWithTag(iter *TextIter, text string, tag *TextTag) {
+	cstr := C.CString(text)
+	defer C.free(unsafe.Pointer(cstr))
+	C._gtk_text_buffer_insert_with_tag(v.native(), (*C.GtkTextIter)(iter), (*C.gchar)(cstr), C.gint(len(text)), tag.native())
+}
+
+// InsertWithTagByName() is a wrapper around gtk_text_buffer_insert_with_tags_by_name() that supports only one tag
+// as cgo does not support functions with variable-argument lists (see https://github.com/golang/go/issues/975)
+func (v *TextBuffer) InsertWithTagByName(iter *TextIter, text string, tagName string) {
+	cstr := C.CString(text)
+	defer C.free(unsafe.Pointer(cstr))
+	ctag := C.CString(tagName)
+	defer C.free(unsafe.Pointer(ctag))
+	C._gtk_text_buffer_insert_with_tag_by_name(v.native(), (*C.GtkTextIter)(iter), (*C.gchar)(cstr), C.gint(len(text)), (*C.gchar)(ctag))
 }
 
 // RemoveTag() is a wrapper around gtk_text_buffer_remove_tag().
@@ -8514,6 +8555,64 @@ func (v *TreeModelFilter) ConvertIterToChildIter(filterIter *TreeIter) *TreeIter
 	C.gtk_tree_model_filter_convert_iter_to_child_iter(v.native(), &iter, filterIter.native())
 	t := &TreeIter{iter}
 	return t
+}
+
+// ConvertPathToChildPath is a wrapper around gtk_tree_model_filter_convert_path_to_child_path().
+func (v *TreeModelFilter) ConvertPathToChildPath(filterPath *TreePath) *TreePath {
+	path := C.gtk_tree_model_filter_convert_path_to_child_path(v.native(), filterPath.native())
+	if path == nil {
+		return nil
+	}
+
+	p := &TreePath{path}
+	runtime.SetFinalizer(p, (*TreePath).free)
+
+	return p
+}
+
+// Refilter is a wrapper around gtk_tree_model_filter_refilter().
+func (v *TreeModelFilter) Refilter() {
+	C.gtk_tree_model_filter_refilter(v.native())
+}
+
+// TreeModelFilterVisibleFunc defines the function prototype for the filter visibility function (f arg)
+// to TreeModelFilter.SetVisibleFunc.
+type TreeModelFilterVisibleFunc func(model *TreeModelFilter, iter *TreeIter, userData interface{}) bool
+
+type treeModelFilterVisibleFuncData struct {
+	fn       TreeModelFilterVisibleFunc
+	userData interface{}
+}
+
+var (
+	treeModelVisibleFilterFuncRegistry = struct {
+		sync.RWMutex
+		next int
+		m    map[int]treeModelFilterVisibleFuncData
+	}{
+		next: 1,
+		m:    make(map[int]treeModelFilterVisibleFuncData),
+	}
+)
+
+// SetVisibleFunc is a wrapper around gtk_tree_model_filter_set_visible_func().
+func (v *TreeModelFilter) SetVisibleFunc(f TreeModelFilterVisibleFunc, userData ...interface{}) error {
+	if len(userData) > 1 {
+		return errors.New("userData len must be 0 or 1")
+	}
+
+	t := treeModelFilterVisibleFuncData{fn: f}
+	if len(userData) > 0 {
+		t.userData = userData[0]
+	}
+	treeModelVisibleFilterFuncRegistry.Lock()
+	id := treeModelVisibleFilterFuncRegistry.next
+	treeModelVisibleFilterFuncRegistry.next++
+	treeModelVisibleFilterFuncRegistry.m[id] = t
+	treeModelVisibleFilterFuncRegistry.Unlock()
+
+	C._gtk_tree_model_filter_set_visible_func(v.native(), C.gpointer(uintptr(id)))
+	return nil
 }
 
 /*
